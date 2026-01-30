@@ -21,7 +21,9 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
-    "octpus": "bun run apps/cli/src/index.ts"
+    "octpus": "bun run apps/cli/src/index.ts",
+    "start": "bun run apps/core/src/index.ts",
+    "gateway": "bun run apps/gateway/src/index.ts"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
