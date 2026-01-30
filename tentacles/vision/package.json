@@ -1,0 +1,27 @@
+{
+  "name": "@octpus/tentacle-vision",
+  "version": "0.1.0",
+  "description": "Vision tentacle - OCR, image analysis, QR scanning",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@octpus/types": "workspace:*",
+    "eventemitter3": "^5.0.1",
+    "nanoid": "^5.0.0",
+    "tesseract.js": "^5.1.0",
+    "jimp": "^0.22.12",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
