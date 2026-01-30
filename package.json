@@ -1,0 +1,37 @@
+{
+  "name": "octpus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "8 arms. Infinite reach. The AI agent that hunts lobsters.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/octpusbot/octpus.git"
+  },
+  "keywords": ["ai", "agent", "assistant", "automation", "llm"],
+  "author": "Octpus Contributors",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "tentacles/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "octpus": "bun run apps/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.4.0",
+    "eslint": "^9.0.0"
+  },
+  "packageManager": "bun@1.1.0",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
