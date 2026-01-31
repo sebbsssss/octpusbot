@@ -21,12 +21,12 @@ async function build(): Promise<void> {
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
   fs.mkdirSync(DIST_DIR, { recursive: true });
 
-  // Bundle to single file
+  // Bundle to single file (Node.js compatible)
   console.log('📦 Bundling...');
   const result = await Bun.build({
     entrypoints: [ENTRY],
     outdir: DIST_DIR,
-    target: 'bun',
+    target: 'node',
     minify: true,
     sourcemap: 'none',
   });
@@ -36,9 +36,11 @@ async function build(): Promise<void> {
     process.exit(1);
   }
 
-  // Rename output
+  // Fix shebang for Node.js compatibility
   const bundlePath = path.join(DIST_DIR, 'octpus.js');
-  fs.renameSync(path.join(DIST_DIR, 'octpus.js'), bundlePath);
+  let bundleContent = fs.readFileSync(bundlePath, 'utf-8');
+  bundleContent = bundleContent.replace(/^#!\/usr\/bin\/env bun/, '#!/usr/bin/env node');
+  fs.writeFileSync(bundlePath, bundleContent);
 
   const stats = fs.statSync(bundlePath);
   const sizeKB = (stats.size / 1024).toFixed(1);
@@ -64,7 +66,7 @@ async function build(): Promise<void> {
 
   const pkg = {
     name: 'octpus',
-    version: '0.1.0',
+    version: '0.1.1',
     description: '8 arms. Infinite reach. Autonomous AI agent.',
     bin: { octpus: './octpus.js' },
     main: './octpus.js',
