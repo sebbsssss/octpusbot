@@ -483,13 +483,30 @@ Response (format, send)
 
 ---
 
-## Appendix A: API Reference
+## Appendix A: Documentation
 
-See [docs/api.md](docs/api.md) for full API documentation.
+- [Getting Started](docs/getting-started.md)
+- [Configuration](docs/configuration.md)
+- [Capabilities](docs/capabilities.md)
+- [Autonomy Engine](docs/autonomy.md)
+- [Security](docs/security.md)
 
-## Appendix B: Configuration Schema
+## Appendix B: Installation
 
-See [docs/config.md](docs/config.md) for configuration options.
+```bash
+# Fastest
+npx octpus
+
+# Standalone binary
+curl -fsSL octpus.dev/install.sh | bash
+
+# Package managers
+npm install -g octpus
+brew install sebbsssss/tap/octpus
+
+# Container
+docker run -it octpus/octpus
+```
 
 ## Appendix C: Security Audit
 
