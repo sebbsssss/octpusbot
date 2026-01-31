@@ -21,7 +21,7 @@ import * as readline from 'readline';
 // CONFIG
 // =============================================================================
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.2';
 const CONFIG_DIR = path.join(os.homedir(), '.octpus');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
@@ -90,9 +90,13 @@ async function setup(): Promise<void> {
   // Integrations (optional)
   console.log(`\n${c.dim}Optional integrations (press Enter to skip):${c.reset}\n`);
 
-  const telegram = await prompt('Telegram Bot Token: ');
-  if (telegram) config.integrations = { ...config.integrations, telegram: { botToken: telegram } };
+  // Telegram setup with pairing
+  const setupTelegram = await prompt('Setup Telegram? (y/N): ');
+  if (setupTelegram.toLowerCase() === 'y') {
+    await setupTelegramIntegration(config);
+  }
 
+  // Discord setup
   const discord = await prompt('Discord Bot Token: ');
   if (discord) config.integrations = { ...config.integrations, discord: { botToken: discord } };
 
@@ -100,6 +104,108 @@ async function setup(): Promise<void> {
   saveConfig(config);
 
   console.log(`\n${c.green}✓${c.reset} Config saved to ${CONFIG_FILE}\n`);
+}
+
+async function setupTelegramIntegration(config: Config): Promise<void> {
+  console.log(`\n${c.cyan}Telegram Setup${c.reset}`);
+  console.log(`${c.dim}Create a bot via @BotFather on Telegram first.${c.reset}\n`);
+
+  const botToken = await prompt('Bot Token: ');
+  if (!botToken) return;
+
+  // Validate token by calling getMe
+  console.log(`${c.dim}Verifying bot token...${c.reset}`);
+
+  try {
+    const meResponse = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meData = await meResponse.json() as any;
+
+    if (!meData.ok) {
+      console.log(`${c.red}Invalid bot token.${c.reset} Please check and try again.\n`);
+      return;
+    }
+
+    const botUsername = meData.result.username;
+    console.log(`${c.green}✓${c.reset} Connected to @${botUsername}\n`);
+
+    // Now wait for user to pair
+    console.log(`${c.bold}Pairing:${c.reset}`);
+    console.log(`1. Open Telegram and search for @${botUsername}`);
+    console.log(`2. Send ${c.cyan}/start${c.reset} to the bot`);
+    console.log(`\n${c.dim}Waiting for your message...${c.reset}\n`);
+
+    // Long-poll for updates
+    let chatId: string | null = null;
+    let userId: string | null = null;
+    let username: string | null = null;
+    let offset = 0;
+
+    // Clear any pending updates first
+    await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?offset=-1`);
+
+    const timeout = setTimeout(() => {
+      if (!chatId) {
+        console.log(`\n${c.yellow}Timeout.${c.reset} You can pair later by running: octpus setup\n`);
+        process.exit(0);
+      }
+    }, 120000); // 2 minute timeout
+
+    while (!chatId) {
+      try {
+        const updatesResponse = await fetch(
+          `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&timeout=30`
+        );
+        const updatesData = await updatesResponse.json() as any;
+
+        if (updatesData.ok && updatesData.result.length > 0) {
+          for (const update of updatesData.result) {
+            offset = update.update_id + 1;
+
+            if (update.message) {
+              chatId = update.message.chat.id.toString();
+              userId = update.message.from.id.toString();
+              username = update.message.from.username || update.message.from.first_name;
+
+              // Send welcome message
+              await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: `🐙 *Octpus paired successfully!*\n\nI'll send you messages here. You can also chat with me directly.`,
+                  parse_mode: 'Markdown'
+                })
+              });
+
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore polling errors, retry
+      }
+    }
+
+    clearTimeout(timeout);
+
+    console.log(`${c.green}✓${c.reset} Paired with ${username} (Chat ID: ${chatId})\n`);
+
+    // Save to config
+    config.integrations = {
+      ...config.integrations,
+      telegram: {
+        botToken,
+        botUsername,
+        chatId,
+        userId,
+        username,
+        pairedAt: new Date().toISOString()
+      }
+    };
+
+  } catch (error: any) {
+    console.log(`${c.red}Error:${c.reset} ${error.message}\n`);
+  }
 }
 
 async function chat(initialMessage?: string): Promise<void> {
@@ -324,6 +430,98 @@ function version(): void {
   console.log(`octpus v${VERSION}`);
 }
 
+async function telegram(args: string[]): Promise<void> {
+  const config = loadConfig();
+  const tg = config.integrations?.telegram;
+
+  if (!tg?.botToken || !tg?.chatId) {
+    console.log(`${c.yellow}Telegram not configured.${c.reset} Run: octpus setup\n`);
+    return;
+  }
+
+  const cmd = args[0];
+
+  switch (cmd) {
+    case 'send':
+      const message = args.slice(1).join(' ');
+      if (!message) {
+        console.log(`Usage: octpus telegram send "Your message"`);
+        return;
+      }
+
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: tg.chatId,
+            text: message
+          })
+        });
+        const data = await response.json() as any;
+
+        if (data.ok) {
+          console.log(`${c.green}✓${c.reset} Message sent to ${tg.username || tg.chatId}`);
+        } else {
+          console.log(`${c.red}Error:${c.reset} ${data.description}`);
+        }
+      } catch (error: any) {
+        console.log(`${c.red}Error:${c.reset} ${error.message}`);
+      }
+      break;
+
+    case 'status':
+      console.log(`\n${c.bold}Telegram Status:${c.reset}`);
+      console.log(`  Bot: @${tg.botUsername || 'unknown'}`);
+      console.log(`  Paired with: ${tg.username || 'unknown'}`);
+      console.log(`  Chat ID: ${tg.chatId}`);
+      console.log(`  Paired at: ${tg.pairedAt || 'unknown'}\n`);
+      break;
+
+    case 'test':
+      console.log(`${c.dim}Sending test message...${c.reset}`);
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: tg.chatId,
+            text: `🐙 Test message from Octpus!\n\nTimestamp: ${new Date().toISOString()}`
+          })
+        });
+        const data = await response.json() as any;
+
+        if (data.ok) {
+          console.log(`${c.green}✓${c.reset} Test message sent! Check your Telegram.`);
+        } else {
+          console.log(`${c.red}Error:${c.reset} ${data.description}`);
+        }
+      } catch (error: any) {
+        console.log(`${c.red}Error:${c.reset} ${error.message}`);
+      }
+      break;
+
+    case 'unpair':
+      delete config.integrations?.telegram;
+      saveConfig(config);
+      console.log(`${c.green}✓${c.reset} Telegram unpaired.`);
+      break;
+
+    default:
+      console.log(`
+${c.bold}Octpus Telegram${c.reset}
+
+Usage: octpus telegram <command>
+
+Commands:
+  status             Show Telegram connection status
+  test               Send a test message
+  send "message"     Send a message to your Telegram
+  unpair             Remove Telegram integration
+`);
+  }
+}
+
 function help(): void {
   console.log(`
 ${c.cyan}🐙 Octpus${c.reset} - 8 arms. Infinite reach.
@@ -331,15 +529,17 @@ ${c.cyan}🐙 Octpus${c.reset} - 8 arms. Infinite reach.
 ${c.bold}Usage:${c.reset}
   octpus                    Interactive chat
   octpus "your message"     Quick query
-  octpus setup              Configure API keys
+  octpus setup              Configure API keys & integrations
+  octpus telegram <cmd>     Telegram commands
   octpus daemon <cmd>       Background agent
   octpus version            Show version
   octpus help               Show this help
 
 ${c.bold}Examples:${c.reset}
   octpus "What's the price of ETH?"
+  octpus telegram test
+  octpus telegram send "Hello from Octpus!"
   octpus daemon start
-  octpus daemon objective "Monitor BTC and alert me if it drops 5%"
 
 ${c.dim}Config: ~/.octpus/config.json${c.reset}
 `);
@@ -373,6 +573,10 @@ async function main(): Promise<void> {
     case 'daemon':
     case 'd':
       return daemon(args.slice(1));
+
+    case 'telegram':
+    case 'tg':
+      return telegram(args.slice(1));
 
     case 'version':
     case '-v':
