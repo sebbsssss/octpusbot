@@ -232,9 +232,203 @@
       display: flex;
       gap: 1.5rem;
     }
+
+    /* The lurker in the depths */
+    .abyss {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 100vh;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+    }
+
+    .abyss::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200%;
+      height: 60%;
+      background: radial-gradient(
+        ellipse at 50% 100%,
+        rgba(255, 182, 39, 0.008) 0%,
+        rgba(255, 182, 39, 0.003) 20%,
+        transparent 50%
+      );
+    }
+
+    .lurker {
+      position: absolute;
+      bottom: -5%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(1400px, 140vw);
+      height: auto;
+      opacity: 1;
+    }
+
+    .lurker-body {
+      fill: #080808;
+    }
+
+    .lurker-shadow {
+      fill: #050505;
+    }
+
+    .lurker-eye {
+      fill: #0a0a0a;
+    }
+
+    .lurker-eye-glow {
+      fill: rgba(255, 182, 39, 0.06);
+    }
+
+    .lurker-pupil {
+      fill: rgba(255, 182, 39, 0.12);
+    }
+
+    .lurker-tentacle {
+      fill: #070707;
+    }
+
+    .lurker-sucker {
+      fill: #060606;
+    }
   </style>
 </head>
 <body>
+  <!-- The creature watches from below -->
+  <div class="abyss">
+    <svg class="lurker" viewBox="0 0 1400 500" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
+      <!-- Deep shadow layer -->
+      <ellipse class="lurker-shadow" cx="700" cy="520" rx="500" ry="200"/>
+
+      <!-- Main body mass -->
+      <path class="lurker-body" d="
+        M700 280
+        C820 280 920 320 950 380
+        C970 420 960 470 920 500
+        L480 500
+        C440 470 430 420 450 380
+        C480 320 580 280 700 280
+        Z
+      "/>
+
+      <!-- Left tentacles -->
+      <path class="lurker-tentacle" d="
+        M480 460
+        Q400 480 280 500
+        Q200 510 100 500
+        Q50 495 0 520
+        L0 500
+        Q80 470 180 480
+        Q300 460 400 440
+        Q460 430 480 450
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M500 480
+        Q420 510 300 540
+        Q200 560 80 550
+        Q-20 545 -100 580
+        L-100 560
+        Q0 530 120 530
+        Q260 520 380 490
+        Q460 470 500 475
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M520 490
+        Q480 530 400 580
+        Q300 640 150 660
+        Q50 675 -50 720
+        L-50 700
+        Q60 660 180 640
+        Q340 610 440 550
+        Q500 510 520 485
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M560 495
+        Q540 550 480 620
+        Q400 710 280 780
+        Q180 840 100 900
+        L120 900
+        Q200 850 300 780
+        Q440 690 520 590
+        Q570 520 560 490
+        Z
+      "/>
+
+      <!-- Right tentacles -->
+      <path class="lurker-tentacle" d="
+        M920 460
+        Q1000 480 1120 500
+        Q1200 510 1300 500
+        Q1350 495 1400 520
+        L1400 500
+        Q1320 470 1220 480
+        Q1100 460 1000 440
+        Q940 430 920 450
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M900 480
+        Q980 510 1100 540
+        Q1200 560 1320 550
+        Q1420 545 1500 580
+        L1500 560
+        Q1400 530 1280 530
+        Q1140 520 1020 490
+        Q940 470 900 475
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M880 490
+        Q920 530 1000 580
+        Q1100 640 1250 660
+        Q1350 675 1450 720
+        L1450 700
+        Q1340 660 1220 640
+        Q1060 610 960 550
+        Q900 510 880 485
+        Z
+      "/>
+      <path class="lurker-tentacle" d="
+        M840 495
+        Q860 550 920 620
+        Q1000 710 1120 780
+        Q1220 840 1300 900
+        L1280 900
+        Q1200 850 1100 780
+        Q960 690 880 590
+        Q830 520 840 490
+        Z
+      "/>
+
+      <!-- Subtle suckers on nearest tentacles -->
+      <circle class="lurker-sucker" cx="420" cy="470" r="6"/>
+      <circle class="lurker-sucker" cx="380" cy="485" r="5"/>
+      <circle class="lurker-sucker" cx="340" cy="495" r="4"/>
+      <circle class="lurker-sucker" cx="980" cy="470" r="6"/>
+      <circle class="lurker-sucker" cx="1020" cy="485" r="5"/>
+      <circle class="lurker-sucker" cx="1060" cy="495" r="4"/>
+
+      <!-- The eye - watching -->
+      <ellipse class="lurker-eye" cx="620" cy="380" rx="45" ry="35"/>
+      <ellipse class="lurker-eye-glow" cx="620" cy="380" rx="42" ry="32"/>
+      <ellipse class="lurker-pupil" cx="625" cy="378" rx="12" ry="18"/>
+
+      <!-- Second eye - deeper in shadow -->
+      <ellipse class="lurker-eye" cx="780" cy="385" rx="40" ry="30" style="opacity: 0.6"/>
+      <ellipse class="lurker-eye-glow" cx="780" cy="385" rx="36" ry="26" style="opacity: 0.4"/>
+      <ellipse class="lurker-pupil" cx="784" cy="383" rx="10" ry="14" style="opacity: 0.5"/>
+    </svg>
+  </div>
   <header>
     <div class="logo">octpus</div>
   </header>
