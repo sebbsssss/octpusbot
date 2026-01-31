@@ -1,5 +1,5 @@
 {
-  "name": "octpus",
+  "name": "octpusbot-monorepo",
   "version": "0.1.0",
   "private": true,
   "description": "8 arms. Infinite reach. Autonomous AI agent.",
@@ -10,9 +10,6 @@
   "keywords": ["ai", "agent", "assistant", "automation", "llm", "claude", "autonomous"],
   "author": "Seb <sebastien@pixl64.com>",
   "license": "MIT",
-  "bin": {
-    "octpus": "./bin/octpus.ts"
-  },
   "workspaces": [
     "apps/*",
     "tentacles/*",
