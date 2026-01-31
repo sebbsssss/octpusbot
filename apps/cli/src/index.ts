@@ -19,6 +19,9 @@
  */
 
 import * as readline from 'readline';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { EventEmitter } from 'eventemitter3';
 import { nanoid } from 'nanoid';
 import { Message, TentacleType, ChannelType } from '@octpus/types';
@@ -33,6 +36,17 @@ interface CLIConfig {
   maxHistory?: number;
   colors?: boolean;
   silent?: boolean;
+}
+
+interface OctpusConfig {
+  anthropicApiKey?: string;
+  integrations: {
+    telegram?: { botToken: string };
+    discord?: { botToken: string };
+    whatsapp?: { phoneId: string; accessToken: string };
+    slack?: { botToken: string; appToken: string };
+  };
+  onboardingComplete: boolean;
 }
 
 interface Command {
@@ -94,10 +108,160 @@ export class OctpusCLI {
   }
 
   /**
+   * Get config file path
+   */
+  private getConfigPath(): string {
+    return path.join(os.homedir(), '.octpus', 'config.json');
+  }
+
+  /**
+   * Load config from disk
+   */
+  private loadConfig(): OctpusConfig {
+    const configPath = this.getConfigPath();
+    try {
+      if (fs.existsSync(configPath)) {
+        return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+    } catch {}
+    return { integrations: {}, onboardingComplete: false };
+  }
+
+  /**
+   * Save config to disk
+   */
+  private saveConfig(config: OctpusConfig): void {
+    const configPath = this.getConfigPath();
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  }
+
+  /**
+   * Prompt user for input
+   */
+  private async prompt(question: string, defaultValue?: string): Promise<string> {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const suffix = defaultValue ? ` (${defaultValue})` : '';
+      rl.question(`${question}${suffix}: `, (answer) => {
+        rl.close();
+        resolve(answer.trim() || defaultValue || '');
+      });
+    });
+  }
+
+  /**
+   * Run onboarding wizard
+   */
+  async runOnboarding(): Promise<void> {
+    const config = this.loadConfig();
+
+    console.log(`\n${colors.cyan}${colors.bold}Welcome to Octpus!${colors.reset}`);
+    console.log(`${colors.dim}Let's get you set up. Press Enter to skip optional steps.${colors.reset}\n`);
+
+    // Step 1: Anthropic API Key
+    console.log(`${colors.bold}Step 1: AI Brain${colors.reset}`);
+    console.log(`${colors.dim}Required for Octpus to think. Get one at https://console.anthropic.com${colors.reset}`);
+    const anthropicKey = await this.prompt('Anthropic API Key', process.env.ANTHROPIC_API_KEY);
+    if (anthropicKey) {
+      config.anthropicApiKey = anthropicKey;
+      console.log(`${colors.green}✓${colors.reset} API key saved\n`);
+    } else {
+      console.log(`${colors.yellow}⚠${colors.reset} Skipped - set ANTHROPIC_API_KEY env var later\n`);
+    }
+
+    // Step 2: Messaging Integrations
+    console.log(`${colors.bold}Step 2: Messaging (optional)${colors.reset}`);
+    console.log(`${colors.dim}Connect your chat platforms. Skip any you don't need.${colors.reset}\n`);
+
+    // Telegram
+    console.log(`${colors.cyan}Telegram${colors.reset} - Create a bot via @BotFather`);
+    const telegramToken = await this.prompt('Bot Token');
+    if (telegramToken) {
+      config.integrations.telegram = { botToken: telegramToken };
+      console.log(`${colors.green}✓${colors.reset} Telegram configured\n`);
+    } else {
+      console.log(`${colors.dim}Skipped${colors.reset}\n`);
+    }
+
+    // Discord
+    console.log(`${colors.cyan}Discord${colors.reset} - Create app at https://discord.com/developers`);
+    const discordToken = await this.prompt('Bot Token');
+    if (discordToken) {
+      config.integrations.discord = { botToken: discordToken };
+      console.log(`${colors.green}✓${colors.reset} Discord configured\n`);
+    } else {
+      console.log(`${colors.dim}Skipped${colors.reset}\n`);
+    }
+
+    // WhatsApp
+    console.log(`${colors.cyan}WhatsApp${colors.reset} - Set up via Meta Business Suite`);
+    const whatsappPhoneId = await this.prompt('Phone Number ID');
+    if (whatsappPhoneId) {
+      const whatsappToken = await this.prompt('Access Token');
+      if (whatsappToken) {
+        config.integrations.whatsapp = { phoneId: whatsappPhoneId, accessToken: whatsappToken };
+        console.log(`${colors.green}✓${colors.reset} WhatsApp configured\n`);
+      }
+    } else {
+      console.log(`${colors.dim}Skipped${colors.reset}\n`);
+    }
+
+    // Slack
+    console.log(`${colors.cyan}Slack${colors.reset} - Create app at https://api.slack.com/apps`);
+    const slackBotToken = await this.prompt('Bot Token (xoxb-...)');
+    if (slackBotToken) {
+      const slackAppToken = await this.prompt('App Token (xapp-...)');
+      if (slackAppToken) {
+        config.integrations.slack = { botToken: slackBotToken, appToken: slackAppToken };
+        console.log(`${colors.green}✓${colors.reset} Slack configured\n`);
+      }
+    } else {
+      console.log(`${colors.dim}Skipped${colors.reset}\n`);
+    }
+
+    // Save config
+    config.onboardingComplete = true;
+    this.saveConfig(config);
+
+    // Summary
+    console.log(`\n${colors.green}${colors.bold}Setup complete!${colors.reset}\n`);
+    console.log(`Config saved to: ${colors.dim}${this.getConfigPath()}${colors.reset}`);
+    console.log(`\nConfigured integrations:`);
+
+    const integrations = [];
+    if (config.anthropicApiKey) integrations.push('AI Brain');
+    if (config.integrations.telegram) integrations.push('Telegram');
+    if (config.integrations.discord) integrations.push('Discord');
+    if (config.integrations.whatsapp) integrations.push('WhatsApp');
+    if (config.integrations.slack) integrations.push('Slack');
+
+    if (integrations.length > 0) {
+      integrations.forEach(i => console.log(`  ${colors.green}✓${colors.reset} ${i}`));
+    } else {
+      console.log(`  ${colors.dim}None configured yet${colors.reset}`);
+    }
+
+    console.log(`\n${colors.dim}Run /setup anytime to reconfigure.${colors.reset}\n`);
+  }
+
+  /**
    * Start the CLI
    */
   async start(): Promise<void> {
     this.running = true;
+
+    // Check if onboarding needed
+    const config = this.loadConfig();
+    if (!config.onboardingComplete) {
+      await this.runOnboarding();
+    }
 
     // Print banner
     this.printBanner();
@@ -328,6 +492,38 @@ export class OctpusCLI {
       usage: '/exit',
       handler: async () => {
         this.stop();
+      },
+    });
+
+    // Setup command
+    this.registerCommand({
+      name: 'setup',
+      aliases: ['configure', 'config'],
+      description: 'Run setup wizard to configure integrations',
+      usage: '/setup',
+      handler: async () => {
+        await this.runOnboarding();
+      },
+    });
+
+    // Integrations command
+    this.registerCommand({
+      name: 'integrations',
+      aliases: ['int', 'channels'],
+      description: 'Show configured integrations',
+      usage: '/integrations',
+      handler: async () => {
+        const config = this.loadConfig();
+        this.print(`\n${colors.bold}Configured Integrations:${colors.reset}\n`);
+
+        const check = (enabled: boolean) => enabled ? `${colors.green}✓${colors.reset}` : `${colors.dim}○${colors.reset}`;
+
+        this.print(`  ${check(!!config.anthropicApiKey)} AI Brain (Anthropic)`);
+        this.print(`  ${check(!!config.integrations.telegram)} Telegram`);
+        this.print(`  ${check(!!config.integrations.discord)} Discord`);
+        this.print(`  ${check(!!config.integrations.whatsapp)} WhatsApp`);
+        this.print(`  ${check(!!config.integrations.slack)} Slack`);
+        this.print(`\n${colors.dim}Run /setup to configure.${colors.reset}\n`);
       },
     });
 

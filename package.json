@@ -2,14 +2,17 @@
   "name": "octpus",
   "version": "0.1.0",
   "private": true,
-  "description": "8 arms. Infinite reach. The AI agent that hunts lobsters.",
+  "description": "8 arms. Infinite reach. Autonomous AI agent.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/octpusbot/octpus.git"
+    "url": "https://github.com/sebbsssss/octpusbot.git"
   },
-  "keywords": ["ai", "agent", "assistant", "automation", "llm"],
-  "author": "Octpus Contributors",
+  "keywords": ["ai", "agent", "assistant", "automation", "llm", "claude", "autonomous"],
+  "author": "Seb <sebastien@pixl64.com>",
   "license": "MIT",
+  "bin": {
+    "octpus": "./bin/octpus.ts"
+  },
   "workspaces": [
     "apps/*",
     "tentacles/*",
@@ -17,13 +20,16 @@
   ],
   "scripts": {
     "build": "turbo run build",
+    "build:standalone": "bun run scripts/build.ts",
+    "build:docker": "docker build -t octpus .",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "clean": "turbo run clean && rm -rf node_modules",
-    "octpus": "bun run apps/cli/src/index.ts",
-    "start": "bun run apps/core/src/index.ts",
-    "gateway": "bun run apps/gateway/src/index.ts"
+    "clean": "turbo run clean && rm -rf node_modules dist",
+    "octpus": "bun run bin/octpus.ts",
+    "start": "bun run bin/octpus.ts",
+    "daemon": "bun run bin/octpus.ts daemon start",
+    "release": "bun run scripts/release.ts"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
@@ -32,8 +38,12 @@
     "prettier": "^3.4.0",
     "eslint": "^9.0.0"
   },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0"
+  },
   "packageManager": "bun@1.1.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
   }
 }
