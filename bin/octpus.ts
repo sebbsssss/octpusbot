@@ -21,7 +21,7 @@ import * as readline from 'readline';
 // CONFIG
 // =============================================================================
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const CONFIG_DIR = path.join(os.homedir(), '.octpus');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
@@ -507,6 +507,11 @@ async function telegram(args: string[]): Promise<void> {
       console.log(`${c.green}✓${c.reset} Telegram unpaired.`);
       break;
 
+    case 'listen':
+    case 'start':
+      await telegramListen(config);
+      break;
+
     default:
       console.log(`
 ${c.bold}Octpus Telegram${c.reset}
@@ -514,11 +519,145 @@ ${c.bold}Octpus Telegram${c.reset}
 Usage: octpus telegram <command>
 
 Commands:
+  listen             Start bot and respond to messages
   status             Show Telegram connection status
   test               Send a test message
   send "message"     Send a message to your Telegram
   unpair             Remove Telegram integration
 `);
+  }
+}
+
+async function telegramListen(config: Config): Promise<void> {
+  const tg = config.integrations?.telegram;
+
+  if (!tg?.botToken) {
+    console.log(`${c.yellow}Telegram not configured.${c.reset} Run: octpus setup\n`);
+    return;
+  }
+
+  if (!config.anthropicApiKey) {
+    console.log(`${c.yellow}No API key configured.${c.reset} Run: octpus setup\n`);
+    return;
+  }
+
+  console.log(`\n${c.cyan}🐙 Octpus Telegram Bot${c.reset}`);
+  console.log(`${c.dim}Listening for messages... (Ctrl+C to stop)${c.reset}\n`);
+
+  // Lazy-load Anthropic SDK
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  const client = new Anthropic({ apiKey: config.anthropicApiKey });
+
+  // Conversation history per chat
+  const conversations = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
+
+  let offset = 0;
+
+  // Clear pending updates
+  await fetch(`https://api.telegram.org/bot${tg.botToken}/getUpdates?offset=-1`);
+
+  const sendTelegramMessage = async (chatId: string, text: string) => {
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'Markdown'
+      })
+    });
+  };
+
+  const sendTyping = async (chatId: string) => {
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, action: 'typing' })
+    });
+  };
+
+  // Handle graceful shutdown
+  process.on('SIGINT', () => {
+    console.log(`\n${c.dim}Stopping...${c.reset}\n`);
+    process.exit(0);
+  });
+
+  // Main polling loop
+  while (true) {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${tg.botToken}/getUpdates?offset=${offset}&timeout=30`
+      );
+      const data = await response.json() as any;
+
+      if (data.ok && data.result.length > 0) {
+        for (const update of data.result) {
+          offset = update.update_id + 1;
+
+          if (update.message?.text) {
+            const chatId = update.message.chat.id.toString();
+            const userId = update.message.from.id.toString();
+            const username = update.message.from.username || update.message.from.first_name;
+            const text = update.message.text;
+
+            console.log(`${c.dim}[${username}]${c.reset} ${text}`);
+
+            // Handle commands
+            if (text === '/start') {
+              await sendTelegramMessage(chatId, `🐙 *Octpus is ready!*\n\nSend me a message and I'll respond.`);
+              continue;
+            }
+
+            if (text === '/clear') {
+              conversations.delete(chatId);
+              await sendTelegramMessage(chatId, `🧹 Conversation cleared.`);
+              continue;
+            }
+
+            // Get or create conversation
+            if (!conversations.has(chatId)) {
+              conversations.set(chatId, []);
+            }
+            const messages = conversations.get(chatId)!;
+
+            // Add user message
+            messages.push({ role: 'user', content: text });
+
+            // Show typing indicator
+            await sendTyping(chatId);
+
+            try {
+              // Get AI response
+              const aiResponse = await client.messages.create({
+                model: config.model || 'claude-sonnet-4-20250514',
+                max_tokens: 1024,
+                system: `You are Octpus, an autonomous AI agent communicating via Telegram. Be helpful, concise, and friendly. Use markdown formatting sparingly (bold, italic). Keep responses brief unless asked for detail.`,
+                messages: messages.slice(-20) // Keep last 20 messages for context
+              });
+
+              const reply = aiResponse.content[0];
+              const replyText = reply.type === 'text' ? reply.text : 'I could not generate a response.';
+
+              // Add assistant message to history
+              messages.push({ role: 'assistant', content: replyText });
+
+              // Send response
+              await sendTelegramMessage(chatId, replyText);
+              console.log(`${c.cyan}[octpus]${c.reset} ${replyText.substring(0, 100)}${replyText.length > 100 ? '...' : ''}`);
+
+            } catch (error: any) {
+              console.log(`${c.red}Error:${c.reset} ${error.message}`);
+              await sendTelegramMessage(chatId, `⚠️ Sorry, I encountered an error. Please try again.`);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      // Ignore polling errors, just retry
+      if (!error.message?.includes('aborted')) {
+        console.log(`${c.dim}Polling error, retrying...${c.reset}`);
+      }
+    }
   }
 }
 
