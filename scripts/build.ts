@@ -66,7 +66,7 @@ async function build(): Promise<void> {
 
   const pkg = {
     name: 'octpus',
-    version: '0.1.3',
+    version: '0.1.4',
     description: '8 arms. Infinite reach. Autonomous AI agent.',
     bin: { octpus: './octpus.js' },
     main: './octpus.js',

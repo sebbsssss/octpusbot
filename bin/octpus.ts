@@ -21,7 +21,7 @@ import * as readline from 'readline';
 // CONFIG
 // =============================================================================
 
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const CONFIG_DIR = path.join(os.homedir(), '.octpus');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
@@ -345,53 +345,118 @@ ${c.bold}Status:${c.reset}
 
 async function daemon(args: string[]): Promise<void> {
   const cmd = args[0];
+  const pidFile = path.join(CONFIG_DIR, 'octpus.pid');
+  const logFile = path.join(CONFIG_DIR, 'octpus.log');
 
   switch (cmd) {
     case 'start':
-      console.log(`${c.dim}Starting daemon...${c.reset}`);
-      // Lazy-load daemon
-      const { OctpusDaemon } = await import('../packages/autonomy/src/daemon');
+      // Check if already running
+      if (fs.existsSync(pidFile)) {
+        const existingPid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
+        try {
+          process.kill(existingPid, 0);
+          console.log(`${c.yellow}Daemon already running${c.reset} (PID: ${existingPid})`);
+          return;
+        } catch {
+          // Stale PID file, remove it
+          fs.unlinkSync(pidFile);
+        }
+      }
+
       const config = loadConfig();
       if (!config.anthropicApiKey) {
         console.log(`${c.red}No API key.${c.reset} Run: octpus setup`);
         process.exit(1);
       }
-      const d = new OctpusDaemon({ anthropicApiKey: config.anthropicApiKey });
-      await d.start();
+
+      if (!config.integrations?.telegram?.botToken) {
+        console.log(`${c.red}Telegram not configured.${c.reset} Run: octpus setup`);
+        process.exit(1);
+      }
+
+      // Fork to background
+      if (args[1] !== '--foreground') {
+        const { spawn } = await import('child_process');
+        const child = spawn(process.execPath, [process.argv[1], 'daemon', 'start', '--foreground'], {
+          detached: true,
+          stdio: ['ignore', 'ignore', 'ignore'],
+          env: process.env
+        });
+        child.unref();
+
+        // Wait a moment for PID file
+        await new Promise(r => setTimeout(r, 1000));
+
+        if (fs.existsSync(pidFile)) {
+          const pid = fs.readFileSync(pidFile, 'utf-8').trim();
+          console.log(`${c.green}✓${c.reset} Daemon started (PID: ${pid})`);
+          console.log(`${c.dim}Logs: ${logFile}${c.reset}`);
+        } else {
+          console.log(`${c.green}✓${c.reset} Daemon starting...`);
+        }
+        return;
+      }
+
+      // Running in foreground (background process)
+      fs.writeFileSync(pidFile, process.pid.toString());
+
+      const log = (msg: string) => {
+        const line = `[${new Date().toISOString()}] ${msg}\n`;
+        fs.appendFileSync(logFile, line);
+      };
+
+      log('Daemon started');
+      log(`Telegram bot: @${config.integrations.telegram.botUsername}`);
+
+      // Handle shutdown
+      const shutdown = () => {
+        log('Daemon stopping');
+        if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+        process.exit(0);
+      };
+      process.on('SIGTERM', shutdown);
+      process.on('SIGINT', shutdown);
+
+      // Start Telegram bot
+      await runTelegramBot(config, log);
       break;
 
     case 'stop':
-      const pidFile = path.join(CONFIG_DIR, 'octpus.pid');
       if (fs.existsSync(pidFile)) {
         const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
         try {
           process.kill(pid, 'SIGTERM');
-          console.log(`${c.green}Daemon stopped.${c.reset}`);
+          console.log(`${c.green}✓${c.reset} Daemon stopped`);
         } catch {
-          console.log(`${c.dim}Daemon not running.${c.reset}`);
-        }
-      } else {
-        console.log(`${c.dim}Daemon not running.${c.reset}`);
-      }
-      break;
-
-    case 'status':
-      const pf = path.join(CONFIG_DIR, 'octpus.pid');
-      if (fs.existsSync(pf)) {
-        const pid = parseInt(fs.readFileSync(pf, 'utf-8').trim());
-        try {
-          process.kill(pid, 0);
-          console.log(`${c.green}Daemon running${c.reset} (PID: ${pid})`);
-        } catch {
-          console.log(`${c.dim}Daemon not running${c.reset}`);
+          fs.unlinkSync(pidFile);
+          console.log(`${c.dim}Daemon was not running (cleaned up stale PID)${c.reset}`);
         }
       } else {
         console.log(`${c.dim}Daemon not running${c.reset}`);
       }
       break;
 
+    case 'status':
+      if (fs.existsSync(pidFile)) {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
+        try {
+          process.kill(pid, 0);
+          const cfg = loadConfig();
+          console.log(`\n${c.green}● Daemon running${c.reset} (PID: ${pid})`);
+          if (cfg.integrations?.telegram?.botUsername) {
+            console.log(`  Telegram: @${cfg.integrations.telegram.botUsername}`);
+          }
+          console.log(`  Logs: ${logFile}\n`);
+        } catch {
+          fs.unlinkSync(pidFile);
+          console.log(`${c.dim}○ Daemon not running${c.reset}`);
+        }
+      } else {
+        console.log(`${c.dim}○ Daemon not running${c.reset}`);
+      }
+      break;
+
     case 'logs':
-      const logFile = path.join(CONFIG_DIR, 'octpus.log');
       if (fs.existsSync(logFile)) {
         const { spawn } = await import('child_process');
         spawn('tail', ['-f', logFile], { stdio: 'inherit' });
@@ -400,15 +465,16 @@ async function daemon(args: string[]): Promise<void> {
       }
       break;
 
-    case 'objective':
-      const goal = args.slice(1).join(' ');
-      if (!goal) {
-        console.log(`Usage: octpus daemon objective "Your goal here"`);
-        break;
+    case 'restart':
+      // Stop then start
+      if (fs.existsSync(pidFile)) {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
+        try {
+          process.kill(pid, 'SIGTERM');
+          await new Promise(r => setTimeout(r, 1000));
+        } catch {}
       }
-      // TODO: Send to running daemon via IPC
-      console.log(`${c.green}Added objective:${c.reset} ${goal}`);
-      break;
+      return daemon(['start']);
 
     default:
       console.log(`
@@ -417,12 +483,114 @@ ${c.bold}Octpus Daemon${c.reset}
 Usage: octpus daemon <command>
 
 Commands:
-  start              Start background daemon
+  start              Start bot in background
   stop               Stop daemon
+  restart            Restart daemon
   status             Check if running
   logs               Tail daemon logs
-  objective <goal>   Add an objective
+
+${c.dim}The daemon runs your Telegram bot 24/7.${c.reset}
 `);
+  }
+}
+
+async function runTelegramBot(config: Config, log: (msg: string) => void): Promise<void> {
+  const tg = config.integrations!.telegram!;
+
+  // Lazy-load Anthropic SDK
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  const client = new Anthropic({ apiKey: config.anthropicApiKey });
+
+  const conversations = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
+
+  let offset = 0;
+
+  // Clear pending updates
+  await fetch(`https://api.telegram.org/bot${tg.botToken}/getUpdates?offset=-1`);
+
+  const sendMessage = async (chatId: string, text: string) => {
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' })
+    });
+  };
+
+  const sendTyping = async (chatId: string) => {
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, action: 'typing' })
+    });
+  };
+
+  log('Telegram bot polling started');
+
+  // Main loop
+  while (true) {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${tg.botToken}/getUpdates?offset=${offset}&timeout=30`
+      );
+      const data = await response.json() as any;
+
+      if (data.ok && data.result.length > 0) {
+        for (const update of data.result) {
+          offset = update.update_id + 1;
+
+          if (update.message?.text) {
+            const chatId = update.message.chat.id.toString();
+            const username = update.message.from.username || update.message.from.first_name;
+            const text = update.message.text;
+
+            log(`[${username}] ${text}`);
+
+            // Commands
+            if (text === '/start') {
+              await sendMessage(chatId, `🐙 *Octpus is online!*\n\nSend me a message anytime.`);
+              continue;
+            }
+            if (text === '/clear') {
+              conversations.delete(chatId);
+              await sendMessage(chatId, `🧹 Conversation cleared.`);
+              continue;
+            }
+
+            // Get conversation
+            if (!conversations.has(chatId)) {
+              conversations.set(chatId, []);
+            }
+            const messages = conversations.get(chatId)!;
+            messages.push({ role: 'user', content: text });
+
+            await sendTyping(chatId);
+
+            try {
+              const aiResponse = await client.messages.create({
+                model: config.model || 'claude-sonnet-4-20250514',
+                max_tokens: 1024,
+                system: `You are Octpus, an autonomous AI agent on Telegram. Be helpful, concise, and friendly. Keep responses brief.`,
+                messages: messages.slice(-20)
+              });
+
+              const reply = aiResponse.content[0];
+              const replyText = reply.type === 'text' ? reply.text : 'Error generating response.';
+
+              messages.push({ role: 'assistant', content: replyText });
+              await sendMessage(chatId, replyText);
+
+              log(`[octpus] ${replyText.substring(0, 80)}...`);
+            } catch (error: any) {
+              log(`Error: ${error.message}`);
+              await sendMessage(chatId, `⚠️ Error: ${error.message}`);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      log(`Polling error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 5000)); // Wait before retry
+    }
   }
 }
 
